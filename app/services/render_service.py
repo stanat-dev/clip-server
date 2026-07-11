@@ -2,6 +2,7 @@ import asyncio
 import os
 import tempfile
 import uuid
+from datetime import datetime
 
 import ffmpeg
 
@@ -9,6 +10,11 @@ from app.schemas.common import JobStatusEnum
 from app.schemas.render import RenderRequest
 from app.storage.r2_client import make_r2_client
 from app.store.job_store import job_store
+
+
+def _format_watermark_date(captured_at: str) -> str:
+    dt = datetime.fromisoformat(captured_at)
+    return f"{dt.month}/{dt.day} {dt.hour:02d}:{dt.minute:02d}"
 
 
 def _validate_clip_duration(path: str) -> None:
