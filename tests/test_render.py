@@ -7,10 +7,15 @@ async def test_create_render_returns_job_id(client):
     payload = {
         "trip_id": 1,
         "render_id": 10,
-        "clip_keys": ["clips/1/a.mp4"],
+        "clips": [
+            {
+                "key": "clips/1/a.mp4",
+                "location_text": "해운대",
+                "captured_at": "2026-07-10T14:32:00+09:00",
+            }
+        ],
         "bgm_key": "bgm/track.mp3",
         "template": "default",
-        "watermark_text": "StanAt",
     }
     resp = await client.post("/internal/renders", json=payload)
     assert resp.status_code == 202
@@ -24,10 +29,15 @@ async def test_get_render_status(client):
     payload = {
         "trip_id": 2,
         "render_id": 20,
-        "clip_keys": ["clips/2/b.mp4"],
+        "clips": [
+            {
+                "key": "clips/2/b.mp4",
+                "location_text": "광안리",
+                "captured_at": "2026-07-10T16:05:00+09:00",
+            }
+        ],
         "bgm_key": "bgm/track.mp3",
         "template": "default",
-        "watermark_text": "StanAt",
     }
     create_resp = await client.post("/internal/renders", json=payload)
     job_id = create_resp.json()["data"]["job_id"]
