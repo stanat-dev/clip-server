@@ -9,6 +9,7 @@ class ClipInput(BaseModel):
 
 class RenderRequest(BaseModel):
     trip_id: int
+    user_id: int
     render_id: int
     clips: list[ClipInput]
     bgm_key: str | None = None

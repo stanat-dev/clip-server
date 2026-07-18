@@ -10,7 +10,9 @@ class Settings(BaseSettings):
     r2_endpoint_url: str
     r2_access_key_id: str
     r2_secret_access_key: str
-    r2_bucket_name: str = "stanat-clips"
+    r2_bucket_name: str = "stanat"
+
+    watermark_font_path: str = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
 
 
 settings = Settings()

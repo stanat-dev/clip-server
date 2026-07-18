@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 async def test_create_render_returns_job_id(client):
     payload = {
         "trip_id": 1,
+        "user_id": 100,
         "render_id": 10,
         "clips": [
             {
@@ -28,6 +29,7 @@ async def test_create_render_returns_job_id(client):
 async def test_get_render_status(client):
     payload = {
         "trip_id": 2,
+        "user_id": 200,
         "render_id": 20,
         "clips": [
             {

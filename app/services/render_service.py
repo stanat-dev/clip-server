@@ -10,8 +10,7 @@ from app.schemas.common import JobStatusEnum
 from app.schemas.render import RenderRequest
 from app.storage.r2_client import make_r2_client
 from app.store.job_store import job_store
-
-NOTO_SANS_KR_PATH = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+from app.store.render_sequence import render_sequence
 
 
 def _format_watermark_date(captured_at: str) -> str:
@@ -38,6 +37,8 @@ def _normalize_and_watermark_clip(
     1회로 유지한다. concat 단계(`_composite_clips`)는 이미 번인이 끝난
     클립들을 이어붙이기만 한다.
     """
+    from app.config import settings
+
     date_str = _format_watermark_date(captured_at)
 
     stream = ffmpeg.input(src_path)
@@ -50,7 +51,7 @@ def _normalize_and_watermark_clip(
     video = ffmpeg.drawtext(
         video,
         text=date_str,
-        fontfile=NOTO_SANS_KR_PATH,
+        fontfile=settings.watermark_font_path,
         fontsize=22,
         fontcolor="white",
         borderw=2,
@@ -61,7 +62,7 @@ def _normalize_and_watermark_clip(
     video = ffmpeg.drawtext(
         video,
         text=location_text,
-        fontfile=NOTO_SANS_KR_PATH,
+        fontfile=settings.watermark_font_path,
         fontsize=36,
         fontcolor="white",
         borderw=2,
@@ -164,7 +165,8 @@ async def _run_render(job_id: str, req: RenderRequest) -> None:
             await asyncio.to_thread(_composite_clips, clip_paths, bgm_path, out_path)
 
             job_store.update(job_id, progress=80, step_message="업로드")
-            result_key = f"renders/{req.trip_id}/{req.render_id}.mp4"
+            date_str, seq = render_sequence.next()
+            result_key = f"merged-clips/{date_str}/{date_str}-{req.trip_id}-{req.user_id}-{seq}.mp4"
             await asyncio.to_thread(r2.upload, out_path, result_key, "video/mp4")
 
             job_store.update(
