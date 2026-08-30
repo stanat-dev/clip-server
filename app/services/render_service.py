@@ -92,43 +92,49 @@ def _normalize_and_watermark_clip(
 
 
 def _composite_clips(clip_paths: list[str], bgm_path: str | None, out_path: str) -> None:
-    """FFmpeg로 (정규화+워터마크 번인된) 클립 concat → BGM 오버레이.
+    """FFmpeg로 (정규화+워터마크 번인된) 클립을 영상+오디오 함께 concat한다.
 
-    입력 clip_paths는 이미 `_normalize_and_watermark_clip`을 거친 동일 스펙
-    파일이어야 한다. 이 함수는 워터마크 책임을 갖지 않는다.
+    입력 clip_paths는 이미 `_normalize_and_watermark_clip`을 거친 동일 스펙 파일이어야 한다.
+    이 함수는 워터마크 책임을 갖지 않는다. 클립 원본 오디오는 항상 유지된다.
+    bgm_path가 주어지면 원본 오디오를 대체하지 않고 그 위에 BGM을 믹스(오버레이)한다.
     """
     if not clip_paths:
         raise ValueError("clip_paths must not be empty")
 
     inputs = [ffmpeg.input(p) for p in clip_paths]
 
-    concat = ffmpeg.concat(*inputs, v=1, a=0).node
-    video = concat[0]
+    # concat 필터에 v=1,a=1을 주면 "세그먼트당 스트림 2개(비디오+오디오)"를 기대하므로,
+    # 각 입력을 통째로 넘기면 안 되고 video/audio 스트림을 직접 골라 번갈아 넘겨야 한다.
+    # (이전 버전의 버그: ffmpeg.concat(*inputs, v=1, a=1)처럼 입력을 그대로 넘기면
+    #  streams 개수만 맞아떨어질 뿐 실제로는 클립1의 전체 스트림을 "video 세그먼트",
+    #  클립2의 전체 스트림을 "audio 세그먼트"로 잘못 해석해 n=1개짜리 결과만 나오거나 실패한다.)
+    streams: list = []
+    for inp in inputs:
+        streams.append(inp.video)
+        streams.append(inp.audio)
+
+    joined = ffmpeg.concat(*streams, v=1, a=1).node
+    video = joined[0]
+    audio = joined[1]
 
     if bgm_path:
-        audio_input = ffmpeg.input(bgm_path)
-        out = ffmpeg.output(
-            video,
-            audio_input.audio,
-            out_path,
-            shortest=None,
-            vcodec="libx264",
-            crf=26,
-            maxrate="4M",
-            bufsize="8M",
-            pix_fmt="yuv420p",
-            acodec="aac",
-        )
-    else:
-        out = ffmpeg.output(
-            video,
-            out_path,
-            vcodec="libx264",
-            crf=26,
-            maxrate="4M",
-            bufsize="8M",
-            pix_fmt="yuv420p",
-        )
+        bgm_audio = ffmpeg.input(bgm_path).audio
+        # duration="first": 오디오 길이는 원본(클립 concat 결과) 기준으로 맞추고 BGM을 그 위에 덧입힌다.
+        audio = ffmpeg.filter([audio, bgm_audio], "amix", inputs=2, duration="first", dropout_transition=0)
+
+    out = ffmpeg.output(
+        video,
+        audio,
+        out_path,
+        vcodec="libx264",
+        crf=26,
+        maxrate="4M",
+        bufsize="8M",
+        pix_fmt="yuv420p",
+        acodec="aac",
+        ar=48000,
+        ac=2,
+    )
 
     ffmpeg.run(out, overwrite_output=True, quiet=True)
 
