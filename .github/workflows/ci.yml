@@ -28,6 +28,10 @@ jobs:
 
       - name: Run tests
         run: pytest tests/ -v
+        env:
+          R2_ENDPOINT_URL: https://test.r2.cloudflarestorage.com
+          R2_ACCESS_KEY_ID: test-key
+          R2_SECRET_ACCESS_KEY: test-secret
 
   docker-build:
     name: Docker build
