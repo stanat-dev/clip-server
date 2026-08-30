@@ -139,51 +139,72 @@ def _composite_clips(clip_paths: list[str], bgm_path: str | None, out_path: str)
     ffmpeg.run(out, overwrite_output=True, quiet=True)
 
 
+# 클립 개수·길이(최대 5초)를 감안하면 다운로드+재인코딩+합성은 정상적으로는 수 초~10여 초면 끝난다.
+# 그보다 오래 걸리면(네트워크/ffmpeg 행 등) 무한정 RUNNING으로 붙잡아두지 않고 실패 처리해서
+# 사용자가 바로 재시도할 수 있게 한다.
+_RENDER_TIMEOUT_SECONDS = 30
+
+
 async def _run_render(job_id: str, req: RenderRequest) -> None:
-    r2 = make_r2_client()
     try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            job_store.update(job_id, status=JobStatusEnum.RUNNING, progress=10, step_message="클립 다운로드·정규화")
-
-            clip_paths: list[str] = []
-            for i, clip in enumerate(req.clips):
-                src = os.path.join(tmpdir, f"clip_src_{i}.mp4")
-                await asyncio.to_thread(r2.download, clip.key, src)
-                await asyncio.to_thread(_validate_clip_duration, src)
-
-                normalized = os.path.join(tmpdir, f"clip_norm_{i}.mp4")
-                await asyncio.to_thread(
-                    _normalize_and_watermark_clip,
-                    src,
-                    clip.location_text,
-                    clip.captured_at,
-                    normalized,
-                )
-                clip_paths.append(normalized)
-
-            bgm_path: str | None = None
-            if req.bgm_key:
-                bgm_path = os.path.join(tmpdir, "bgm.mp3")
-                await asyncio.to_thread(r2.download, req.bgm_key, bgm_path)
-
-            job_store.update(job_id, progress=50, step_message="영상 합성")
-            out_path = os.path.join(tmpdir, "output.mp4")
-            await asyncio.to_thread(_composite_clips, clip_paths, bgm_path, out_path)
-
-            job_store.update(job_id, progress=80, step_message="업로드")
-            date_str, seq = render_sequence.next()
-            result_key = f"merged-clips/{date_str}/{date_str}-{req.trip_id}-{req.user_id}-{seq}.mp4"
-            await asyncio.to_thread(r2.upload, out_path, result_key, "video/mp4")
-
-            job_store.update(
-                job_id,
-                status=JobStatusEnum.DONE,
-                progress=100,
-                step_message="완료",
-                result_key=result_key,
-            )
+        await asyncio.wait_for(_do_render(job_id, req), timeout=_RENDER_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        # 주의: asyncio.wait_for는 대기 중인 코루틴만 취소한다. 만약 그 시점에
+        # asyncio.to_thread로 넘어간 실제 작업(ffmpeg/네트워크 I/O)이 스레드에서 계속 돌고 있었다면
+        # 그 스레드 자체를 강제 종료하지는 못한다 — 해당 스레드는 백그라운드에서 계속 실행되다가
+        # 조용히 끝나거나 예외를 남기지만(이미 아무도 기다리지 않으므로 무시됨), 어쨌든 이 job_id는
+        # 아래에서 즉시 FAILED로 확정되어 사용자는 더 기다리지 않고 재시도할 수 있다.
+        job_store.update(
+            job_id,
+            status=JobStatusEnum.FAILED,
+            error=f"합성 처리 시간 초과({_RENDER_TIMEOUT_SECONDS}초). 다시 시도해주세요.",
+        )
     except Exception as exc:
         job_store.update(job_id, status=JobStatusEnum.FAILED, error=str(exc))
+
+
+async def _do_render(job_id: str, req: RenderRequest) -> None:
+    r2 = make_r2_client()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        job_store.update(job_id, status=JobStatusEnum.RUNNING, progress=10, step_message="클립 다운로드·정규화")
+
+        clip_paths: list[str] = []
+        for i, clip in enumerate(req.clips):
+            src = os.path.join(tmpdir, f"clip_src_{i}.mp4")
+            await asyncio.to_thread(r2.download, clip.key, src)
+            await asyncio.to_thread(_validate_clip_duration, src)
+
+            normalized = os.path.join(tmpdir, f"clip_norm_{i}.mp4")
+            await asyncio.to_thread(
+                _normalize_and_watermark_clip,
+                src,
+                clip.location_text,
+                clip.captured_at,
+                normalized,
+            )
+            clip_paths.append(normalized)
+
+        bgm_path: str | None = None
+        if req.bgm_key:
+            bgm_path = os.path.join(tmpdir, "bgm.mp3")
+            await asyncio.to_thread(r2.download, req.bgm_key, bgm_path)
+
+        job_store.update(job_id, progress=50, step_message="영상 합성")
+        out_path = os.path.join(tmpdir, "output.mp4")
+        await asyncio.to_thread(_composite_clips, clip_paths, bgm_path, out_path)
+
+        job_store.update(job_id, progress=80, step_message="업로드")
+        date_str, seq = render_sequence.next()
+        result_key = f"merged-clips/{date_str}/{date_str}-{req.trip_id}-{req.user_id}-{seq}.mp4"
+        await asyncio.to_thread(r2.upload, out_path, result_key, "video/mp4")
+
+        job_store.update(
+            job_id,
+            status=JobStatusEnum.DONE,
+            progress=100,
+            step_message="완료",
+            result_key=result_key,
+        )
 
 
 def start_render(req: RenderRequest) -> str:
