@@ -55,3 +55,23 @@ async def test_get_render_status(client):
 async def test_get_render_not_found(client):
     resp = await client.get("/internal/renders/no-such-job")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_create_render_without_internal_secret_rejected(client):
+    resp = await client.post(
+        "/internal/renders",
+        json={"trip_id": 1, "user_id": 1, "render_id": 1, "clips": []},
+        headers={"X-Internal-Secret": ""},
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_create_render_with_wrong_internal_secret_rejected(client):
+    resp = await client.post(
+        "/internal/renders",
+        json={"trip_id": 1, "user_id": 1, "render_id": 1, "clips": []},
+        headers={"X-Internal-Secret": "wrong-secret"},
+    )
+    assert resp.status_code == 401

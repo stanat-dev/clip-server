@@ -1,12 +1,13 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.exceptions import ClipServerException
 from app.schemas.common import ApiResponse, JobStatus
 from app.schemas.render import RenderRequest, RenderResponse
+from app.security import verify_internal_secret
 from app.services.render_service import start_render
 from app.store.job_store import job_store
 
-router = APIRouter(prefix="/internal/renders", tags=["render"])
+router = APIRouter(prefix="/internal/renders", tags=["render"], dependencies=[Depends(verify_internal_secret)])
 
 
 @router.post("", status_code=202)

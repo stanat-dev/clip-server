@@ -14,5 +14,10 @@ class Settings(BaseSettings):
 
     watermark_font_path: str = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
 
+    # Job 상태 저장소. Spring 쪽과 동일한 Redis 인스턴스를 공유한다 (env var 이름도 맞춤).
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_password: str = ""
+
 
 settings = Settings()
